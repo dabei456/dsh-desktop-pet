@@ -1,19 +1,66 @@
 {
   "name": "dsh-desktop-pet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "DeepSeek 桌宠 · 像素小鲸鱼（可在桌面游、贴窗口、被撞会晕）",
+  "description": "DeepSeek 鲸鱼娘桌宠：会走、会躲、会扒窗口、能喂文件、能聊天",
   "main": "main.js",
+  "author": "dabei456",
+  "license": "MIT",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --publish never"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
   },
   "dependencies": {
     "@pixiv/three-vrm": "^3.3.0",
+    "electron-updater": "^6.8.11",
     "pixi-live2d-display": "^0.4.0",
     "pixi.js": "^6.5.10",
     "three": "^0.169.0"
+  },
+  "build": {
+    "appId": "com.dabei456.dshpet",
+    "productName": "DeepSeek桌宠",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "assets/char/**/*",
+      "assets/icon.*",
+      "_tools/win_rects.ps1",
+      "_tools/smtc.ps1"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "DeepSeek桌宠"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "dabei456",
+        "repo": "dsh-desktop-pet"
+      }
+    ],
+    "asarUnpack": [
+      "_tools/**"
+    ]
   }
 }

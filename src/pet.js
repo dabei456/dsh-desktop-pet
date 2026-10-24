@@ -24,7 +24,18 @@ const EXPR_SRC = ['normal', 'blink', 'smile', 'surprise', 'sleepy', 'angry'];
 const BASE = '../assets/char/dafeiyu/';
 const ANIM = { idle: [], hover: [], success: [] };
 const STILL = { front: null, side: null, back: null };
-const WHALE = { base: new Image(), blink: new Image(), ready: false };
+const WHALE = { base: new Image(), blink: new Image(), sleep: new Image(), ready: false };
+WHALE.sleep.src = '../assets/char/whale/q_sleep.png';
+WHALE.stretch = new Image(); WHALE.stretch.src = '../assets/char/whale/q_stretch.png';
+WHALE.sit = new Image(); WHALE.sit.src = '../assets/char/whale/q_sit.png';
+WHALE.wave = new Image(); WHALE.wave.src = '../assets/char/whale/q_wave.png';
+WHALE.shy = new Image(); WHALE.shy.src = '../assets/char/whale/q_shy.png';
+WHALE.angry = new Image(); WHALE.angry.src = '../assets/char/whale/q_angry.png';
+WHALE.blow = new Image(); WHALE.blow.src = '../assets/char/whale/q_blow.png';
+WHALE.walk1 = new Image(); WHALE.walk1.src = '../assets/char/whale/q_walk1.png';
+WHALE.walk2 = new Image(); WHALE.walk2.src = '../assets/char/whale/q_walk2.png';
+WHALE.walk3 = new Image(); WHALE.walk3.src = '../assets/char/whale/q_walk3.png';
+WHALE.walk4 = new Image(); WHALE.walk4.src = '../assets/char/whale/q_walk4.png';
 WHALE.base.onload = () => { WHALE.ready = true; };
 WHALE.base.src = '../assets/char/whale/q_base_s.png';
 WHALE.blink.src = '../assets/char/whale/q_blink_s.png';
@@ -38,6 +49,8 @@ const SRC = {
 };
 
 const pet = {
+  pose: '', poseT: 0, poseCd: 8 + Math.random() * 10,
+  game: '', gameT: 0, gameCd: 26 + Math.random() * 26, bubbles: [], butterfly: null,
   asleep: false,
   knocked: false,
   downT: 0,
@@ -151,18 +164,23 @@ function floorAt(cx, bottom, vy) {
 
 // 挑一个窗口，闪现到它上边缘，扒着往下看
 function perchOnWindow() {
-  const cand = platforms.filter((p) => p.fg && p.y >= 0 && p.y < GROUND - 120 && p.w > 260);
-  if (!cand.length) return false;
-  const p = cand[Math.floor(Math.random() * cand.length)];
+  const cand = platforms.filter((p) => p.fg && p.y >= -30 && p.y < GROUND - 120 && p.w > 260);
+  if (!cand.length) console.log('CAND ' + JSON.stringify(platforms.map((q) => [q.fg ? 1 : 0, q.y, q.w])));  if (!cand.length) return false;
+  const front = cand.filter((x) => x.fg);
+  const pool2 = front.length ? front : cand;
+  const p = pool2[Math.floor(Math.random() * pool2.length)];
   pet.x = p.x + 60 + Math.random() * Math.max(20, p.w - 120 - PET_W);
-  pet.y = Math.max(0, p.y - PET_H * 0.58);
+  pet.y = Math.max(0, p.y - PET_H * 0.78);
+  pet.pose = 'sit';
+  pet.poseT = 999;
   pet.standId = p.id;
   pet.vx = 0;
   pet.vy = 0;
   pet.stuck = 0;
   pet.perched = true;
   pet.perchEdge = p.y;
-  pet.perchT = 14 + Math.random() * 20;
+  pet.perchT = 90 + Math.random() * 150;
+  console.log('PERCH y=' + Math.round(pet.y) + ' edge=' + p.y + ' state=' + pet.state);
   setState('idle');
   pet.cheerT = 1.6;
   say(pickLine('found', ['咦…你在干嘛', '我看看你在干嘛', '这上面风好大']), 2.4);
@@ -193,7 +211,7 @@ let singMode = false;
 function tooTired() {
   const h = new Date().getHours();
   const night = h >= 23 || h < 7;
-  return night || needs.mood < 6;
+  return night;
 }
 
 function loadOne(src) {
@@ -369,7 +387,7 @@ async function init() {
 
 function setState(s) {
   if (pet.state === s) return;
-  if (s !== 'idle') { pet.perched = false; pet.perchEdge = 0; }
+  if (s === 'drag' || s === 'sleep' || s === 'fall' || s === 'hide') { pet.perched = false; pet.perchEdge = 0; }
   pet.state = s;
   pet.stateT = 0;
 }
@@ -418,6 +436,13 @@ function loadNeeds() {
   } catch {}
 }
 
+let needPushAt = 0;
+function pushNeeds() {
+  const now = Date.now();
+  if (now - needPushAt < 4000) return;
+  needPushAt = now;
+  try { window.petAPI.reportNeeds(Math.round(needs.hunger), Math.round(needs.mood)); } catch (e) {}
+}
 function saveNeeds() {
   try {
     localStorage.setItem('needs', JSON.stringify({
@@ -430,6 +455,7 @@ function saveNeeds() {
 
 // 交互/事件统一入口：只调内部值，不显示
 function feel(moodDelta, hungerDelta = 0) {
+  setTimeout(pushNeeds, 0);
   needs.mood = Math.max(0, Math.min(100, needs.mood + moodDelta));
   needs.hunger = Math.max(0, Math.min(100, needs.hunger + hungerDelta));
   if (needs.hunger > 45) pet.midFed = false;
@@ -473,6 +499,18 @@ function loop(now) {
 }
 
 function update(dt) {
+  updateGame(dt);
+  if (pet.poseT > 0) {
+    pet.poseT -= dt;
+    if (pet.poseT <= 0) { pet.pose = ""; pet.poseCd = 10 + Math.random() * 14; }
+  } else if (!pet.asleep && pet.state === "idle" && !pet.dragging) {
+    pet.poseCd -= dt;
+    if (pet.poseCd <= 0) {
+      const pool = ["stretch", "sit", "shy", "wave"];
+      pet.pose = pool[Math.floor(Math.random() * pool.length)];
+      pet.poseT = 5 + Math.random() * 4;
+    }
+  }
   pet.stateT += dt;
   if (pet.bubbleT > 0) pet.bubbleT -= dt;
   if (pet.blushT > 0) pet.blushT -= dt;
@@ -496,7 +534,7 @@ function update(dt) {
   if (pet.asleep) {
     pet.sleepT += dt;
     pet.vx = 0;
-    if ((!tooTired() && pet.sleepT > 60) || pet.sleepT > 3600) {
+    if ((!tooTired() && pet.sleepT > 60) || pet.sleepT > 1800) {
       pet.asleep = false;
       pet.sleepT = 0;
       setState('idle');
@@ -545,7 +583,6 @@ function update(dt) {
   if (pet.hideCd <= 0 && pet.state !== 'hide' && !pet.dragging && !pet.asleep && needs.mood > 8) goHide();
 
   // 心情/饥饿映射到表情（低概率，不刷屏）
-  if (needs.mood < 22 && pet.angryT <= 0 && Math.random() < dt * 0.06) pet.angryT = 2.2;
   if (needs.hunger < 12 && pet.sleepyT <= 0 && Math.random() < dt * 0.04) pet.sleepyT = 2.5;
 
   // 长时间没人理 → 犯困
@@ -691,10 +728,13 @@ function update(dt) {
     } catch {}
   }
 
-  if (pet.perched) {
+  if (pet.perched) { pet.vx = 0;
     pet.perchT = (pet.perchT || 0) - dt;
     if (pet.perchT <= 0 || pet.dragging) {
+      console.log('DROP perchT=' + Math.round(pet.perchT) + ' drag=' + pet.dragging + ' state=' + pet.state + ' y=' + Math.round(pet.y));
       pet.perched = false;
+      pet.pose = '';
+      pet.poseT = 0;
       pet.standId = 0;
       pet.vy = 30;
       setState('fall');
@@ -740,6 +780,7 @@ function update(dt) {
   }
 
   pet.vy += GRAVITY * dt;
+  if (pet.perched) { pet.vx = 0; pet.vx = 0; pet.vy = 0; }
   pet.x += pet.vx * dt;
   pet.y += pet.vy * dt;
 
@@ -765,13 +806,14 @@ function update(dt) {
 
   const bottomY = pet.y + PET_H;
   const f = floorAt(pet.x + PET_W / 2, bottomY, pet.vy);
-  if (bottomY >= f) {
+  if (pet.perched) { pet.vx = 0; pet.y = Math.max(0, pet.perchEdge - PET_H * 0.94); }
+  if (!pet.perched && bottomY >= f) {
     const fell = pet.vy > 500;
     pet.y = f - PET_H;
     pet.vy = 0;
     pet.standId = platformIdAt(pet.x + PET_W / 2, f);
     if (pet.state === 'fall') {
-      if (pet.knocked) {
+      if (pet.knocked && Math.abs(pet.vx) > 240) {
         pet.knocked = false;
         feel(-8);
         setState('down');
@@ -877,6 +919,22 @@ function cacheWhale() {
   };
   WCACHE.base = make(WHALE.base);
   WCACHE.blink = WHALE.blink.complete && WHALE.blink.naturalWidth ? make(WHALE.blink) : null;
+  if (WHALE.sleep.complete && WHALE.sleep.naturalWidth) {
+    const sh = Math.max(48, Math.round(targetH * 0.55));
+    const c = document.createElement('canvas');
+    c.width = Math.round((WHALE.sleep.width / WHALE.sleep.height) * sh);
+    c.height = sh;
+    const g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(WHALE.sleep, 0, 0, c.width, sh);
+    WCACHE.sleep = c;
+  } else {
+    WCACHE.sleep = null;
+  }
+  for (const k of ['stretch', 'sit', 'wave', 'shy', 'angry', 'blow', 'walk1', 'walk2', 'walk3', 'walk4']) {
+    const im = WHALE[k];
+    WCACHE[k] = (im && im.complete && im.naturalWidth) ? make(im) : null;
+  }
   WCACHE.h = targetH;
 }
 
@@ -901,7 +959,8 @@ function drawNeeds() {
 }
 
 function drawPet(now) {
-  if (pet.perched) {
+  drawGame();
+  if (pet.perched) { pet.vx = 0;
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, W, Math.max(0, pet.perchEdge || (pet.y + PET_H * 0.58)));
@@ -918,8 +977,8 @@ function drawPetInner(now) {
   const bottom = pet.y + PET_H;
 
   const breathe = Math.sin(now / 620) * 0.016;
-  const bob = pet.state === 'walk' ? Math.abs(Math.sin(now / 130)) * 5 : 0;
-  const lean = pet.state === 'walk' ? Math.sin(now / 200) * 0.045 : 0;
+  const bob = (pet.state === 'walk' && !pet.perched && !(pet.pose && pet.poseT > 0)) ? Math.abs(Math.sin(now / 130)) * 5 : 0;
+  const lean = (pet.state === 'walk' && !pet.perched && !(pet.pose && pet.poseT > 0)) ? Math.sin(now / 200) * 0.045 : 0;
   const sway = pet.state === 'idle' ? Math.sin(now / 1500) * 0.022 : 0;
   const shake = pet.state === 'drag' ? Math.sin(now / 45) * 0.05 : 0;
 
@@ -928,13 +987,17 @@ function drawPetInner(now) {
   ctx.globalAlpha = 0.16;
   ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.ellipse(cx, bottom - 2, PET_W * 0.34, 9, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, bottom - 2, PET_W * (pet.asleep ? 0.44 : 0.34), pet.asleep ? 6 : 9, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
   if (WHALE.base.complete && WHALE.base.naturalWidth && !L2D.ready) {
-    const dh = PET_H;
-    const srcW = WCACHE.base || WHALE.base;
+    const useSleep = pet.asleep && WCACHE.sleep;
+    let poseKey = (!useSleep && pet.pose && WCACHE[pet.pose]) ? pet.pose : null;
+    if (!useSleep && !poseKey && pet.state === 'walk' && WCACHE.walk1) { const WF = ['walk1', 'walk3', 'walk2', 'walk4']; const spd = Math.abs(pet.vx) < 40 ? 240 : 150; poseKey = WF[Math.floor(now / spd) % 4]; }
+    if (!useSleep && pet.angryT > 0 && WCACHE.angry) poseKey = 'angry';
+    const dh = useSleep ? PET_H * 0.55 : PET_H;
+    const srcW = useSleep ? WCACHE.sleep : (poseKey ? WCACHE[poseKey] : (WCACHE.base || WHALE.base));
     const dw = (srcW.width / srcW.height) * dh;
     // 眨眼：每 5.2 秒一次，单眨 + 双眨
     const ph = (now / 1000) % 5.2;
@@ -943,9 +1006,10 @@ function drawPetInner(now) {
     ctx.translate(cx, bottom - bob);
     if (pet.state === 'down') { ctx.translate(0, -PET_H * 0.42); ctx.rotate((Math.PI / 2) * (pet.facing >= 0 ? 1 : -1)); }
     ctx.rotate(lean + shake + sway);
+    if (pet.state === 'walk' && Math.abs(pet.vx) > 8) ctx.scale(pet.vx > 0 ? -1 : 1, 1);
     ctx.scale(pet.facing * (1 + pet.squash * 0.6), (1 + breathe) * (1 - pet.squash));
     ctx.imageSmoothingQuality = pet.state === 'drag' ? 'low' : 'high';
-    ctx.drawImage((blinkOn && WCACHE.blink) ? WCACHE.blink : (WCACHE.base || WHALE.base), -dw / 2, -dh, dw, dh);
+    ctx.drawImage(useSleep ? WCACHE.sleep : (poseKey ? WCACHE[poseKey] : ((blinkOn && WCACHE.blink) ? WCACHE.blink : (WCACHE.base || WHALE.base))), -dw / 2, -dh, dw, dh);
     if (pet.blushT > 0) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, pet.blushT) * 0.5;
@@ -1711,3 +1775,118 @@ window.addEventListener('blur', () => {
 
 setInterval(function(){ console.log('POS', Math.round(pet.x), Math.round(pet.y), pet.state, 'asleep='+pet.asleep, 'idleFor='+Math.round(pet.idleFor)); }, 4000);
 init();
+
+
+// ---------- 偷看一眼你在 DSH 里说的最后一句 ----------
+let lastDshText = '';
+let lastDshAt = 0;
+async function pollDsh() {
+  if (pet.asleep || pet.dragging || document.hidden) return;
+  try {
+    const r = await window.petAPI.dshPeek();
+    if (!r || !r.text) return;
+    if (r.text === lastDshText) return;
+    lastDshText = r.text;
+    if (Date.now() - lastDshAt < 60000) return;
+    lastDshAt = Date.now();
+    if (Math.random() > 0.45) return;
+    setTimeout(() => {
+      if (pet.asleep) return;
+      say(pickLine('dsh', '……你刚才跟她说那句，我听见了'), 4.5);
+      feel(1);
+    }, 900);
+  } catch (e) {}
+}
+setInterval(pollDsh, 75000);
+setTimeout(pollDsh, 20000);
+
+
+// ---------------- 小游戏：吹泡泡 / 追蝴蝶 ----------------
+function startGame(kind) {
+  pet.game = kind;
+  if (kind === 'bubble') { pet.pose = 'blow'; pet.poseT = 9.5; }
+  pet.gameT = kind === 'bubble' ? 9 : 8;
+  pet.bubbles = [];
+  if (kind === 'butterfly') {
+    pet.butterfly = { x: pet.x + PET_W / 2, y: pet.y + PET_H * 0.2, t: 0 };
+    say(pickLine('play', ['诶，蝴蝶！', '别跑！']), 2);
+  } else {
+    say(pickLine('play', ['呼——', '看我的泡泡']), 2);
+  }
+}
+function updateGame(dt) {
+  if (!pet.game) {
+    if (!pet.asleep && pet.state === 'idle' && !pet.dragging && !isListening()) {
+      pet.gameCd -= dt;
+      if (pet.gameCd <= 0) {
+        startGame(Math.random() < 0.55 ? 'bubble' : 'butterfly');
+        pet.gameCd = 40 + Math.random() * 50;
+      }
+    }
+    return;
+  }
+  pet.gameT -= dt;
+  if (pet.gameT <= 0) { pet.game = ''; pet.butterfly = null; pet.gameCd = 40 + Math.random() * 50; return; }
+
+  if (pet.game === 'bubble') {
+    if (Math.random() < dt * 3.5) {
+      pet.bubbles.push({
+        x: pet.x + PET_W * 0.5 + (Math.random() - 0.5) * PET_W * 0.25,
+        y: pet.y + PET_H * 0.42,
+        r: 2 + Math.random() * 4,
+        a: 0.95,
+        vx: (Math.random() - 0.5) * 18,
+      });
+    }
+    for (const b of pet.bubbles) { b.y -= (26 + b.r * 3) * dt; b.x += b.vx * dt; b.a -= dt * 0.24; }
+    pet.bubbles = pet.bubbles.filter((b) => b.a > 0);
+  } else if (pet.butterfly) {
+    const bf = pet.butterfly;
+    bf.t += dt;
+    const cx = pet.x + PET_W / 2;
+    bf.x = cx + Math.sin(bf.t * 1.9) * PET_W * 0.75;
+    bf.y = pet.y + PET_H * 0.16 + Math.sin(bf.t * 3.1) * PET_H * 0.16;
+    // 追过去
+    const dx = bf.x - (pet.x + PET_W / 2);
+    if (Math.abs(dx) > 6) { pet.facing = dx > 0 ? 1 : -1; }
+    pet.x += Math.max(-46, Math.min(46, dx)) * dt * 1.6;
+    pet.x = Math.max(-PET_W * 0.3, Math.min(W - PET_W * 0.7, pet.x));
+  }
+}
+function drawGame() {
+  if (pet.game === 'bubble') {
+    for (const b of pet.bubbles) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, b.a));
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(190,225,255,0.20)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.32, b.r * 0.22, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  if (pet.game === 'butterfly' && pet.butterfly) {
+    const bf = pet.butterfly;
+    const flap = Math.abs(Math.sin(bf.t * 13));
+    ctx.save();
+    ctx.translate(bf.x, bf.y);
+    ctx.fillStyle = '#FFC24D';
+    for (const sd of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(sd * 5 * (0.5 + flap * 0.5), -3, 5.5 * (0.5 + flap * 0.5), 4.6, sd * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#5B4A2F';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 1.4, 5.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}

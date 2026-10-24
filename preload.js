@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('petAPI', {
+  reportNeeds: (h, m) => ipcRenderer.send('needs-report', { h, m }),
+  dshPeek: () => ipcRenderer.invoke('dsh-peek'),
   setHit: (inside) => ipcRenderer.send('pet-hit', inside),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (c) => ipcRenderer.invoke('save-settings', c),

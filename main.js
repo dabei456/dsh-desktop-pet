@@ -1,5 +1,10 @@
 // DeepSeek 桌宠 · 主进程
 // 一块铺满整屏的透明窗口，宠物画在里面；鼠标默认穿透，指到宠物身上才接管。
+function toolFile(name) {
+  const p = require('path').join(__dirname, '_tools', name);
+  return app.isPackaged ? p.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1') : p;
+}
+
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -35,11 +40,12 @@ let lastTitle = '';
 let lastTitleAt = 0;
 
 function startMediaWatch() {
-  const ps1 = path.join(__dirname, '_tools', 'smtc.ps1');
+  const ps1 = toolFile('smtc.ps1');
   if (!fs.existsSync(ps1)) return;
   mediaProc = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1], {
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'ignore'],
+    env: cleanEnv(),
   });
   let buf = '';
   mediaProc.stdout.setEncoding('utf8');
@@ -65,15 +71,26 @@ function startMediaWatch() {
 
 // 其它窗口的矩形：常驻 PowerShell 枚举，变了推给渲染层（用来「趴窗口边」）
 let rectsProc = null;
+function cleanEnv() {
+  const e = {};
+  const seen = new Set();
+  for (const k of Object.keys(process.env)) {
+    const lk = k.toLowerCase();
+    if (seen.has(lk)) continue;
+    seen.add(lk);
+    e[k] = process.env[k];
+  }
+  return e;
+}
 let lastRects = [];
 
 function startRectsWatch() {
-  const ps1 = path.join(__dirname, '_tools', 'win_rects.ps1');
+  const ps1 = toolFile('win_rects.ps1');
   if (!fs.existsSync(ps1)) return;
   rectsProc = spawn(
     'powershell.exe',
     ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1, '-IntervalMs', '250'],
-    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
+    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] , env: cleanEnv() }
   );
   let buf = '';
   rectsProc.stdout.setEncoding('utf8');
@@ -99,6 +116,7 @@ app.disableHardwareAcceleration();
 
 let win = null;
 let tray = null;
+let trayTemplate = null;
 
 // 单实例：重复启动就把已有的叫出来
 const gotLock = app.requestSingleInstanceLock();
@@ -344,7 +362,7 @@ ipcMain.handle('ask', async (_e, payload) => {
   const body = JSON.stringify({
     model: payload.model || cfg0.model || 'deepseek-ai/DeepSeek-V4.1-Flash',
     messages: payload.messages,
-    max_tokens: 120,
+    max_tokens: 48,
     temperature: 0.95,
     top_p: 0.9,
   });
@@ -396,18 +414,36 @@ ipcMain.handle('make-snack', async () => {
   }
 });
 
+let liveNeeds = { h: 0, m: 0 };
+let lastTraySync = 0;
+ipcMain.on('needs-report', (_e, d) => {
+  liveNeeds = d || liveNeeds;
+  if (!tray) return;
+  try { tray.setToolTip('饱腹 ' + liveNeeds.h + '% · 心情 ' + liveNeeds.m + '%'); } catch (e) {}
+  const now = Date.now();
+  if (now - lastTraySync > 15000 && trayTemplate) {
+    lastTraySync = now;
+    try { tray.setContextMenu(trayTemplate()); } catch (e) {}
+  }
+});
+
 app.whenReady().then(() => {
   createWindow();
   startMediaWatch();
   startRectsWatch();
+  setTimeout(() => setupUpdater(), 12000);
 
   // 托盘：右键能退出（不然一个看不见的窗口很难关掉）
   try {
     const iconPath = path.join(__dirname, 'assets', 'icon.png');
     tray = new Tray(fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty());
     tray.setToolTip('DeepSeek 桌宠');
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
+    trayTemplate = function () {
+      return Menu.buildFromTemplate([
+        {
+          label: `饱腹 ${liveNeeds.h}% · 心情 ${liveNeeds.m}%`,
+          enabled: false,
+        },
         {
           label: '喂她一个文件（托盘）',
           click: async () => {
@@ -434,13 +470,16 @@ app.whenReady().then(() => {
             }
           },
         },
+        { label: '检查更新', click: () => checkUpdate(true) },
         { label: '设置（API / 人设）…', click: () => openSettingsWindow() },
         { label: '让她藏起来 / 出来', click: () => { if (!win) return; if (win.isVisible()) { win.hide(); } else { win.show(); win.setAlwaysOnTop(true, 'screen-saver'); } } },
         { label: '重画', click: () => win && win.reload() },
         { type: 'separator' },
         { label: '退出', click: () => app.quit() },
-      ])
-    );
+]);
+    };
+    tray.setContextMenu(trayTemplate());
+    tray.on('right-click', () => { try { tray.popUpContextMenu(trayTemplate()); } catch (e) {} });
   } catch (e) {
     log('tray failed', e.message);
   }
@@ -449,3 +488,105 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+
+
+// ---------- 自动更新（electron-updater + GitHub Releases） ----------
+let updater = null;
+let checking = false;
+function setupUpdater() {
+  if (!app.isPackaged) return;
+  try {
+    const { autoUpdater } = require('electron-updater');
+    updater = autoUpdater;
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('error', (e) => { log('updater error ' + e.message); });
+    autoUpdater.on('update-available', (i) => {
+      log('update available ' + i.version);
+      if (win && !win.isDestroyed()) win.webContents.send('feed-from-main', { name: '', size: 0, text: '', note: 'update-available', version: i.version });
+    });
+    autoUpdater.on('update-downloaded', (i) => {
+      log('update downloaded ' + i.version);
+      dialog.showMessageBox({
+        type: 'info',
+        title: '新版本下好了',
+        message: '新版本 ' + i.version + ' 已经下载完，现在重启就换上？',
+        buttons: ['现在重启', '下次再说'],
+        defaultId: 0,
+        cancelId: 1,
+      }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+    });
+    autoUpdater.checkForUpdates().catch((e) => log('check failed ' + e.message));
+  } catch (e) {
+    log('updater init failed ' + e.message);
+  }
+}
+function checkUpdate(manual) {
+  if (!app.isPackaged) {
+    if (manual) dialog.showMessageBox({ type: 'info', title: '开发模式', message: '开发模式不检查更新，打包安装之后才有。' });
+    return;
+  }
+  if (!updater) setupUpdater();
+  if (!updater) return;
+  if (checking) return;
+  checking = true;
+  updater.checkForUpdates().then((r) => {
+    checking = false;
+    if (manual && (!r || !r.updateInfo || r.updateInfo.version === app.getVersion())) {
+      dialog.showMessageBox({ type: 'info', title: '已是最新', message: '当前版本 ' + app.getVersion() + '，已经是最新的了。' });
+    }
+  }).catch((e) => { checking = false; if (manual) dialog.showMessageBox({ type: 'error', title: '检查失败', message: String(e.message || e) }); });
+}
+
+
+// ---------- 读 DSH 会话记录（只看最后一条你说的话） ----------
+function zstdAll(buf) {
+  const zlib = require('zlib');
+  const M = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+  const parts = [];
+  let i = 0;
+  while (true) {
+    const idx = buf.indexOf(M, i + 1);
+    if (idx < 0) { parts.push(buf.subarray(i)); break; }
+    parts.push(buf.subarray(i, idx));
+    i = idx;
+  }
+  let out = '';
+  for (const p of parts) { try { out += zlib.zstdDecompressSync(p).toString('utf8'); } catch (e) {} }
+  return out;
+}
+function dshPickText(d) {
+  if (!d) return '';
+  let c = d.content ?? d.text ?? (d.message && d.message.content) ?? d.body;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) return c.filter((x) => x && (x.type === 'text' || typeof x.text === 'string')).map((x) => x.text || '').join(' ').trim();
+  if (c && typeof c === 'object' && typeof c.text === 'string') return c.text;
+  return '';
+}
+function dshPeekRead() {
+  try {
+    const root = path.join(process.env.USERPROFILE || 'C:/Users/lin', '.dsh', 'sessions');
+    let best = null;
+    for (const d of fs.readdirSync(root)) {
+      const dir = path.join(root, d);
+      let st; try { st = fs.statSync(dir); } catch (e) { continue; }
+      if (!st.isDirectory()) continue;
+      for (const sd of fs.readdirSync(dir)) {
+        const f = path.join(dir, sd, 'session.v4.jsonl.zstd');
+        try { const t = fs.statSync(f).mtimeMs; if (!best || t > best.t) best = { t, f }; } catch (e) {}
+      }
+    }
+    if (!best || Date.now() - best.t > 15 * 60 * 1000) return null;
+    const raw = zstdAll(fs.readFileSync(best.f));
+    const lines = raw.split('\n');
+    for (let i = lines.length - 1; i >= 0 && i > lines.length - 3000; i--) {
+      if (!lines[i]) continue;
+      let o; try { o = JSON.parse(lines[i]); } catch (e) { continue; }
+      if (o.type !== 'user/message') continue;
+      const t = dshPickText(o.data);
+      if (t && t.trim().length > 1) return { text: t.trim().slice(0, 400), t: o.time || best.t };
+    }
+  } catch (e) { log('dsh peek failed ' + e.message); }
+  return null;
+}
+ipcMain.handle('dsh-peek', () => dshPeekRead());

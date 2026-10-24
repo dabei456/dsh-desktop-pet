@@ -4,3 +4,8 @@ dist/
 _tmp/
 _key.txt
 config.json
+
+dist/
+dist2/
+node_modules/
+*.log
