@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>live2d test</title>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<script src="live2dcubismcore.min.js"></script>
+<script src="../node_modules/pixi.js/dist/browser/pixi.min.js"></script>
+<script src="../node_modules/pixi-live2d-display/dist/index.js"></script>
+<script src="../node_modules/pixi-live2d-display/dist/cubism4.js"></script>
+<script>
+  window.addEventListener('error', (e) => console.log('ERR ' + (e.message || e)));
+  (async () => {
+    try {
+      const W = 420, H = 620;
+      const app = new PIXI.Application({
+        view: document.getElementById('view'),
+        width: W, height: H,
+        backgroundAlpha: 0,
+        antialias: true,
+        autoStart: true,
+      });
+      console.log('pixi ok, live2d=' + !!(PIXI.live2d && PIXI.live2d.Live2DModel));
+      const model = await PIXI.live2d.Live2DModel.from('models/whalegirl/c_0120.model3.json', { autoInteract: false });
+      app.stage.addChild(model);
+      const s = Math.min(W / model.width, H / model.height);
+      model.scale.set(s);
+      model.anchor.set(0.5, 1);
+      model.x = W / 2;
+      model.y = H;
+      const b = model.getLocalBounds();
+      console.log('model loaded ' + model.width.toFixed(0) + 'x' + model.height.toFixed(0) + ' scale=' + s.toFixed(3) +
+        ' bounds=' + [b.x, b.y, b.width, b.height].map((n) => Math.round(n)).join(','));
+      const names = Object.keys(model.internalModel.motionManager.definitions || {});
+      console.log('motion groups: ' + names.join(','));
+      window.__motions = names;
+      window.__ready = true;
+    } catch (e) {
+      console.log('FATAL ' + e.message);
+    }
+  })();
+</script>
+</body>
+</html>

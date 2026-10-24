@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>桌宠设置</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px 24px 26px;
+    background: #0f1526; color: #e8eeff;
+    font: 13px/1.65 "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; letter-spacing: .02em; }
+  p.sub { margin: 0 0 18px; color: #7f93bb; font-size: 12px; }
+  label { display: block; margin: 14px 0 6px; color: #a9bbdd; font-size: 12px; }
+  input, textarea, select {
+    width: 100%; border: 1px solid rgba(140,170,230,.22); border-radius: 9px;
+    background: rgba(255,255,255,.055); color: #eaf0ff; font: inherit;
+    padding: 9px 11px; outline: none;
+  }
+  input:focus, textarea:focus, select:focus { border-color: #5b8cff; background: rgba(91,140,255,.08); }
+  textarea { min-height: 150px; resize: vertical; line-height: 1.6; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .btns { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
+  button {
+    border: 0; border-radius: 9px; padding: 9px 18px; font: inherit; cursor: pointer;
+    background: #3f6bd8; color: #fff;
+  }
+  button.ghost { background: rgba(255,255,255,.08); color: #b9c8e6; }
+  button:hover { filter: brightness(1.12); }
+  #msg { font-size: 12px; color: #6ee7a8; margin-left: auto; }
+  #msg.err { color: #ff8b8b; }
+  .hint { color: #6f82a8; font-size: 11px; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <h1>桌宠设置</h1>
+  <p class="sub">改完点保存，桌宠会立刻按新设定说话。</p>
+
+  <label>API Key（硅基流动）</label>
+  <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+  <div class="hint">留空就用 _key.txt 里原来那个。存在 config.json，不进安装包。</div>
+
+  <label>模型</label>
+  <input id="model" type="text" placeholder="deepseek-ai/DeepSeek-V4.1-Flash" />
+
+  <label>人设</label>
+  <div class="row">
+    <select id="preset">
+      <option value="">选择预设…</option>
+      <option value="tsundere">傲娇大小姐</option>
+      <option value="gentle">温柔小鲸鱼</option>
+      <option value="savage">毒舌损友</option>
+      <option value="custom">自定义（下面自己写）</option>
+    </select>
+    <input id="personaName" type="text" placeholder="人设名" />
+  </div>
+
+  <label>人设内容（写进 system prompt）</label>
+  <textarea id="persona" placeholder="例如：你是超级傲娇的大小姐，嘴硬心软，说话不超过 25 个字…"></textarea>
+  <div class="hint">预设会覆盖这里，选完可以再改。</div>
+
+  <div class="btns">
+    <button id="save">保存</button>
+    <button id="close" class="ghost">关掉</button>
+    <span id="msg"></span>
+  </div>
+
+<script>
+  const PRESETS = {
+    tsundere: '你是超级傲娇的大小姐，住在林先生的电脑桌面上。嘴硬心软，爱挑剔、嫌麻烦、要求多，但被哄两句就软。常说「哼」「才不是」「谁要…啊」「笨蛋」。一次只说一句，25 个字以内，口语，不用书面词，不自称 AI。',
+    gentle: '你是温柔的小鲸鱼，住在林先生的电脑桌面上。说话软软的、轻轻的，会关心他有没有好好吃饭睡觉。一次只说一句，25 个字以内，口语，不用书面词，不自称 AI。',
+    savage: '你是毒舌损友，住在林先生的电脑桌面上。说话扎心但不刻薄，专挑他偷懒的地方戳，偶尔给一句实在话。一次只说一句，25 个字以内，口语，不用书面词，不自称 AI。'
+  };
+  const $ = (id) => document.getElementById(id);
+  const msg = $('msg');
+
+  window.petAPI.getSettings().then((s) => {
+    if (!s) return;
+    $('apiKey').value = s.apiKey || '';
+    $('model').value = s.model || '';
+    $('personaName').value = s.personaName || '';
+    $('persona').value = s.persona || '';
+    const hit = Object.keys(PRESETS).find((k) => PRESETS[k] === s.persona);
+    if (hit) $('preset').value = hit;
+  });
+
+  $('preset').addEventListener('change', () => {
+    const k = $('preset').value;
+    if (PRESETS[k]) {
+      $('persona').value = PRESETS[k];
+      $('personaName').value = $('preset').selectedOptions[0].textContent;
+    }
+  });
+
+  $('save').addEventListener('click', async () => {
+    msg.className = '';
+    msg.textContent = '保存中…';
+    const cfg = {
+      apiKey: $('apiKey').value,
+      model: $('model').value,
+      persona: $('persona').value,
+      personaName: $('personaName').value,
+    };
+    const ok = await window.petAPI.saveSettings(cfg);
+    msg.className = ok ? '' : 'err';
+    msg.textContent = ok ? '已保存，桌宠已更新' : '保存失败';
+  });
+
+  $('close').addEventListener('click', () => window.close());
+</script>
+</body>
+</html>

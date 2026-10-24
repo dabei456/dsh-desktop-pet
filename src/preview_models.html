@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>live2d 模型对比</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #eef0f6; overflow: hidden; width: 2400px; height: 1000px; }
+  #view { display: block; }
+  .tag {
+    position: absolute; width: 300px; text-align: center; bottom: 18px;
+    font: 600 26px "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; color: #22305a;
+  }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="tags"></div>
+<script src="live2dcubismcore.min.js"></script>
+<script src="../node_modules/pixi.js/dist/browser/pixi.min.js"></script>
+<script src="../node_modules/pixi-live2d-display/dist/index.js"></script>
+<script src="../node_modules/pixi-live2d-display/dist/cubism4.js"></script>
+<script>
+  window.addEventListener('error', (e) => console.log('ERR ' + (e.message || e)));
+  const NAMES = ['Haru', 'Hiyori', 'Mao', 'Mark', 'Natori', 'Ren', 'Rice', 'Wanko'];
+  const W = 2400, H = 1000, SLOT = 300, BASE = 930;
+  (async () => {
+    const app = new PIXI.Application({
+      view: document.getElementById('view'),
+      width: W, height: H,
+      backgroundAlpha: 1,
+      backgroundColor: 0xeef0f6,
+      antialias: true,
+      autoStart: true,
+    });
+    const tags = document.getElementById('tags');
+    for (let i = 0; i < NAMES.length; i++) {
+      const n = NAMES[i];
+      const cx = SLOT / 2 + i * SLOT;
+      try {
+        const m = await PIXI.live2d.Live2DModel.from(
+          `../_tmp/cubism-samples/Samples/Resources/${n}/${n}.model3.json`,
+          { autoInteract: false }
+        );
+        app.stage.addChild(m);
+        const s = Math.min((SLOT - 24) / m.width, 800 / m.height);
+        m.scale.set(s);
+        m.anchor.set(0.5, 1);
+        m.x = cx;
+        m.y = BASE;
+        console.log(`ok ${n} ${Math.round(m.width)}x${Math.round(m.height)} s=${s.toFixed(3)}`);
+      } catch (e) {
+        console.log(`fail ${n} ${e.message}`);
+      }
+      const d = document.createElement('div');
+      d.className = 'tag';
+      d.style.left = `${i * SLOT}px`;
+      d.textContent = n;
+      tags.appendChild(d);
+      window.__readyCount = i + 1;
+    }
+    window.__done = true;
+  })();
+</script>
+</body>
+</html>

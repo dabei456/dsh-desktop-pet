@@ -1,0 +1,19 @@
+{
+  "name": "dsh-desktop-pet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek 桌宠 · 像素小鲸鱼（可在桌面游、贴窗口、被撞会晕）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.3.0",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10",
+    "three": "^0.169.0"
+  }
+}
